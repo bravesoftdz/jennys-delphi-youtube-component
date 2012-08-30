@@ -3,7 +3,9 @@ unit YTComponentV2;
 interface
 
 uses
-  System.SysUtils, System.Classes, FMX.Forms, IdHTTP, IdSSLOpenSSL, IdURI;
+  System.SysUtils, System.Classes, FMX.Forms, IdHTTP, IdSSLOpenSSL, IdURI,
+  Xml.adomxmldom, Xml.XMLDoc, Xml.XMLIntf, Xml.xmldom, FMX.Types,
+  X_Helper_Classes, YT_Helper_Classes;
 
 type TMethodType = (tmGET, tmPOST, tmPUT, tmDELETE);
 
@@ -22,12 +24,8 @@ type
   TYouTubeV2 = class(TComponent)
   private
     { Private-Deklarationen }
-    FUseProxy: Boolean;
-    FProxyServer: String;
-    FProxyPort: Integer;
-    FProxyUsername: String;
-    FProxyPassword: String;
     FUseHTTPS: Boolean;
+    FDebugMode: Boolean;
 
     FYT_DeveloperKey: String;
     FYT_ClientID: String;
@@ -38,42 +36,41 @@ type
     FYT_RefreshToken: String;
     FYT_ResponseCode: String;
 
-    procedure SetUseProxy(Value: Boolean);
-    procedure SetProxyServer(Value: String);
-    procedure SetProxyPort(Value: Integer);
-    procedure SetProxyUsername(Value: String);
-    procedure SetProxyPassword(Value: String);
-    procedure SetHTTPS(Value: Boolean);
+    FProxySettings: TProxySettings;
 
-    function HTTPMethod(AURL: string; AMethod: TMethodType;
-                        AParams: TStrings; ABody: TStream; AMime: string = DefaultMime): string;
+    URLScheme: String;
+
+    procedure SetHTTPS(Value: Boolean);
+    procedure SetDebugMode(Value: Boolean);
+
+    function HTTPMethod(AURL: string; AMethod: TMethodType; AParams: TStrings; ABody: TStream; AMime: string = DefaultMime): string;
     function GETCommand(URL: string; Params: TStrings): RawBytestring;
-    procedure DELETECommand(URL: string);
-    function POSTCommand(URL: string; Params: TStrings; Body: TStream;
-                         Mime: string): RawBytestring;
+    function POSTCommand(URL: string; Params: TStrings; Body: TStream; Mime: string): RawBytestring;
     function PUTCommand(URL: string; Body: TStream; Mime: string): RawBytestring;
+    procedure DELETECommand(URL: string);
   protected
     { Protected-Deklarationen }
-//    FOAuthv2: TOAuth;
+    procedure SetProxySettings(const Value: TProxySettings);
   public
     { Public-Deklarationen }
+    LastError: String;
+    LastErrorCode: Integer;
+
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
-    function Activate(out NewAccessToken: String): Boolean;
     function AccessURL: String;
     function GetAccessToken: String;
     function RefreshToken: String;
 
+    function Get_YTVideoCategories(LanguageID: String): TYT_VideoCategories;
+    function Get_YTChannelCategories(LanguageID: String): TYT_ChannelCategories;
+    function Get_UserProfile(User: String): TYT_UserInfo;
 
   published
     { Published-Deklarationen }
-    property UseProxy: Boolean read FUseProxy write SetUseProxy default False;
-    property ProxyServer: String read FProxyServer write SetProxyServer;
-    property ProxyPort: Integer read FProxyPort write SetProxyPort default 0;
-    property ProxyUsername: String read FProxyUsername write SetProxyUsername;
-    property ProxyPassword: String read FProxyPassword write SetProxyPassword;
     property UseHTTPS: Boolean read FUseHTTPS write SetHTTPS default True;
+    property DebugMode: Boolean read FDebugMode write SetDebugMode default False;
     property YT_DeveloperKey: String read FYT_DeveloperKey write FYT_DeveloperKey;
     property YT_ClientID: String read FYT_ClientID write FYT_ClientID;
     property YT_ClientSecret: String read FYT_ClientSecret write FYT_ClientSecret;
@@ -81,11 +78,13 @@ type
     property YT_ResponseCode: String read FYT_ResponseCode write FYT_ResponseCode;
     property YT_ExpiresIn: String read FYT_ExpiresIn write FYT_ExpiresIn;
     property YT_RefreshToken: String read FYT_RefreshToken write FYT_RefreshToken;
+    property Proxy: TProxySettings read FProxySettings write SetProxySettings;
 
   end;
 
 var IdHTTP1: TIdHTTP;
     IdSSLIOHandler1: TIdSSLIOHandlerSocketOpenSSL;
+    XMLDocument1: TXMLDocument;
 
 resourcestring
   rsRequestError = 'Request failed: %d - %s';
@@ -109,86 +108,37 @@ begin
   IdHTTP1.IOHandler := IdSSLIOHandler1;
   IdHTTP1.ConnectTimeout := 15000;
   IdHTTP1.ReadTimeout := 0;
+  XMLDocument1:=TXMLDocument.Create(Self);
+  XMLDocument1.DOMVendor:=GetDOMVendor('ADOM XML v4');
+
+  FProxySettings:=TProxySettings.Create(Self);
 end;
 
 destructor TYouTubeV2.Destroy;
 begin
+  XMLDocument1.Free;
   IdSSLIOHandler1.Destroy;
   IdHTTP1.Destroy;
   inherited;
 end;
 
-function TYouTubeV2.Activate(out NewAccessToken: String): Boolean;
+procedure TYouTubeV2.SetProxySettings(const Value: TProxySettings);
 begin
-
-//  NewAccessToken:=GetAccessToken;
-//  FOAuthv2.ClientID:=FYT_ClientID;
-//  FOAuthv2.ClientSecret:=FYT_ClientSecret;
-//  FOAuthv2.Scope:=FYT_Scope;
-
-
-//  if FUseBuiltInFormular=True then
-//     begin
-//
-//     end
-//     else
-//     begin
-//
-//     end;
-////  FOAuthv2.Access_token:=AccessToken;
-//
-//  FOAuthv2.Refresh_token:=RefreshToken;
-////  FYT_DeveloperKey:=YT_DeveloperKey;
-//  NewAccessToken:=FOAuthv2.RefreshToken;
-//  if NewAccessToken<>'' then Result:=True else Result:=False;
-end;
-
-procedure TYouTubeV2.SetUseProxy(Value: Boolean);
-begin
-  FUseProxy:=Value;
-  case Value of
-  True: begin
-          IdHTTP1.ProxyParams.ProxyServer:=FProxyServer;
-          IdHTTP1.ProxyParams.ProxyPort:=FProxyPort;
-          IdHTTP1.ProxyParams.ProxyUsername:=FProxyUsername;
-          IdHTTP1.ProxyParams.ProxyPassword:=FProxyPassword;
-        end;
-  False: begin
-           IdHTTP1.ProxyParams.ProxyServer:='';
-           IdHTTP1.ProxyParams.ProxyPort:=0;
-           IdHTTP1.ProxyParams.ProxyUsername:='';
-           IdHTTP1.ProxyParams.ProxyPassword:='';
-         end;
-  end;
-end;
-
-procedure TYouTubeV2.SetProxyServer(Value: String);
-begin
-  FProxyServer:=Value;
-  IdHTTP1.ProxyParams.ProxyServer:=FProxyServer;
-end;
-
-procedure TYouTubeV2.SetProxyPort(Value: Integer);
-begin
-  FProxyPort:=Value;
-  IdHTTP1.ProxyParams.ProxyPort:=FProxyPort;
-end;
-
-procedure TYouTubeV2.SetProxyUsername(Value: String);
-begin
-  FProxyUsername:=Value;
-  IdHTTP1.ProxyParams.ProxyUsername:=FProxyUsername;
-end;
-
-procedure TYouTubeV2.SetProxyPassword(Value: String);
-begin
-  FProxyPassword:=Value;
-  IdHTTP1.ProxyParams.ProxyPassword:=FProxyPassword;
+  FProxySettings.Assign(Value);
 end;
 
 procedure TYouTubeV2.SetHTTPS(Value: Boolean);
 begin
   FUseHTTPS:=Value;
+  case Value of
+  True: URLScheme:='https';
+  False: URLScheme:='http';
+  end;
+end;
+
+procedure TYouTubeV2.SetDebugMode(Value: Boolean);
+begin
+  FDebugMode:=Value;
 end;
 
 //--> modified version from http://www.webdelphi.ru ----------------------------
@@ -332,5 +282,314 @@ begin
 end;
 
 //<-- modified version from http://www.webdelphi.ru ----------------------------
+
+//--> YouTube functions
+
+function DebugSave(XML: TXMLDocument; Name: String): String;
+begin
+  ForceDirectories(ExtractFilePath(ParamStr(0))+'Debug\');
+  XML.SaveToFile((ExtractFilePath(ParamStr(0))+'\Debug\'+Name+'.xml'));
+end;
+
+function TYouTubeV2.Get_YTVideoCategories(LanguageID: String): TYT_VideoCategories;
+var MS: TMemoryStream;
+    I: Integer;
+    Node: IXMLNode;
+begin
+  try
+    MS:=TMemoryStream.Create;
+    IdHTTP1.Get(URLScheme+'://gdata.youtube.com/schemas/2007/categories.cat?hl='+LanguageID, MS);
+
+    XMLDocument1.Active:=False;
+    XMLDocument1.LoadFromStream(MS);
+    XMLDocument1.Active:=True;
+    if FDebugMode=True then DebugSave(XMLDocument1, '_videocategories_'+LanguageID);
+    SetLength(Result, 0);
+    for I := 0 to XMLDocument1.DocumentElement.ChildNodes.Count-1 do
+        begin
+          Node:=XMLDocument1.DocumentElement.ChildNodes.Get(I);
+          SetLength(Result, Length(Result)+1);
+          Result[Length(Result)-1].Category_LanguageID:=Node.AttributeNodes.FindNode('lang', XMLDocument1.DocumentElement.FindNamespaceURI('xml')).Text;
+          Result[Length(Result)-1].Category_Label:=StringReplace(Node.Attributes['label'], '&amp;', '&', [rfReplaceAll]);
+          Result[Length(Result)-1].Category_Term:=Node.Attributes['term'];
+          if Node.ChildNodes.FindNode('assignable', XMLDocument1.DocumentElement.FindNamespaceURI('yt'))<>nil then
+             Result[Length(Result)-1].Assignable:=True
+             else
+             Result[Length(Result)-1].Assignable:=False;
+          if Node.ChildNodes.FindNode('browsable', XMLDocument1.DocumentElement.FindNamespaceURI('yt'))<>nil then
+             Result[Length(Result)-1].Category_Regions:=Node.ChildNodes.FindNode('browsable', XMLDocument1.DocumentElement.FindNamespaceURI('yt')).Attributes['regions'];
+        end;
+    XMLDocument1.Active:=False;
+    FreeAndNil(MS);
+  except
+    on E: Exception do
+       begin
+         LastError:=E.Message;
+         LastErrorCode:=ExitCode;
+         Result:=nil;
+         XMLDocument1.Active:=False;
+         FreeAndNil(MS);
+       end;
+  end;
+end;
+
+function TYouTubeV2.Get_YTChannelCategories(LanguageID: String): TYT_ChannelCategories;
+var MS: TMemoryStream;
+    I: Integer;
+    Node: IXMLNode;
+begin
+  try
+    MS:=TMemoryStream.Create;
+    IdHTTP1.Get(URLScheme+'://gdata.youtube.com/schemas/2007/channeltypes.cat?hl='+LanguageID, MS);
+
+    XMLDocument1.Active:=False;
+    XMLDocument1.LoadFromStream(MS);
+    XMLDocument1.Active:=True;
+    if FDebugMode=True then DebugSave(XMLDocument1, '_channelcategories_'+LanguageID);
+    SetLength(Result, 0);
+    for I := 0 to XMLDocument1.DocumentElement.ChildNodes.Count-1 do
+        begin
+          Node:=XMLDocument1.DocumentElement.ChildNodes.Get(I);
+          SetLength(Result, Length(Result)+1);
+          Application.ProcessMessages;
+          Result[Length(Result)-1].CategoryLabel:=Node.Attributes['label'];
+          Result[Length(Result)-1].CategoryTerm:=Node.Attributes['term'];
+        end;
+  except
+    on E: Exception do
+       begin
+         LastError:=E.Message;
+         LastErrorCode:=ExitCode;
+         Result:=nil;
+         XMLDocument1.Active:=False;
+         FreeAndNil(MS);
+       end;
+  end;
+end;
+
+function TYouTubeV2.Get_UserProfile(User: String): TYT_UserInfo;
+var ResponseContent: TStringStream;
+    I: Integer;
+    MainNode: IXMLNode;
+    ImageStream: TMemoryStream;
+begin
+  try
+    ResponseContent:=TStringStream.Create;
+    IdHTTP1.Request.Clear;
+    IdHTTP1.Request.CustomHeaders.Clear;
+    IdHTTP1.Request.Host:='gdata.youtube.com';
+    IdHTTP1.Request.CustomHeaders.AddValue('Authorization','Bearer '+FYT_AccessToken);
+    IdHTTP1.Request.CustomHeaders.AddValue('GData-Version','2');
+    IdHTTP1.Request.CustomHeaders.AddValue('X-GData-Key','key='+FYT_DeveloperKey);
+    IdHTTP1.Get(URLScheme+'://gdata.youtube.com/feeds/api/users/'+User+'?v=2', ResponseContent);
+
+    XMLDocument1.Active:=False;
+    XMLDocument1.LoadFromStream(ResponseContent, TXMLEncodingType.xetUTF_8);
+    XMLDocument1.Active:=True;
+    if FDebugMode=True then DebugSave(XMLDocument1, '_userprofile');
+
+    MainNode:=XMLDocument1.DocumentElement;
+
+    for I := 0 to MainNode.ChildNodes.Count-1 do
+        begin
+          if MainNode.ChildNodes[I].NodeName='published' then
+             Result.Channel_Created_Date:=
+               EncodeDate(StrToInt(Copy(MainNode.ChildNodes[I].Text, 0, 4)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 6, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 9, 2)))+
+               EncodeTime(StrToInt(Copy(MainNode.ChildNodes[I].Text, 12, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 15, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 18, 2)), 0);
+
+          if MainNode.ChildNodes[I].NodeName='updated' then
+             Result.Channel_Modified_Date:=
+               EncodeDate(StrToInt(Copy(MainNode.ChildNodes[I].Text, 0, 4)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 6, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 9, 2)))+
+               EncodeTime(StrToInt(Copy(MainNode.ChildNodes[I].Text, 12, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 15, 2)), StrToInt(Copy(MainNode.ChildNodes[I].Text, 18, 2)), 0);
+
+          if MainNode.ChildNodes[I].NodeName='category' then
+             begin
+               if MainNode.ChildNodes[I].Attributes['scheme']='http://gdata.youtube.com/schemas/2007/channeltypes.cat' then
+                  Result.Channel_Category:=MainNode.ChildNodes[I].Attributes['term'];
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='title' then
+             Result.Channel_Title:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='summary' then
+             Result.Channel_Description:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='link' then
+             begin
+               if MainNode.ChildNodes[I].Attributes['rel']='alternate' then
+                  Result.Channel_AlternativeChannelLink:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#insight.views' then
+                  Result.Channel_InsightLink:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='self' then
+                  Result.Channel_InfoLink:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='edit' then
+                  Result.Channel_EditLink:=MainNode.ChildNodes[I].Attributes['href']
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='author' then
+             begin
+               Result.Channel_Author_Name:=MainNode.ChildNodes[I].ChildNodes.FindNode('name').Text;
+               Result.Channel_Author_UserID:=MainNode.ChildNodes[I].ChildNodes.FindNode('userId', XMLDocument1.DocumentElement.FindNamespaceURI('yt')).Text;
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='yt:age' then
+             Result.User_Age:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:company' then
+             Result.User_Company:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='gd:feedLink' then
+             begin
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.watchhistory' then
+                  Result.Links_WatchHistory:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.liveevent' then
+                  begin
+                    Result.Links_LiveEvents:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_LiveEvents_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.favorites' then
+                  begin
+                    Result.Links_Favorites:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_Favorites_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_Favorites:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.contacts' then
+                  begin
+                    Result.Links_Contacts:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_Contacts_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_Contacts:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.inbox' then
+                  begin
+                    Result.Links_Inbox:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_Inbox_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_Inbox:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.playlists' then
+                  Result.Links_Playlists:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.watchlater' then
+                  begin
+                    Result.Links_WatchLater:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_WatchLater_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_WatchLater:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.subscriptions' then
+                  begin
+                    Result.Links_Subscriptions:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_Subscriptions_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_Subscriptions:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.uploads' then
+                  begin
+                    Result.Links_Uploads:=MainNode.ChildNodes[I].Attributes['href'];
+                    Result.Links_Uploads_Count:=MainNode.ChildNodes[I].Attributes['countHint'];
+                    Result.Statistics_Uploads:=StrToInt(MainNode.ChildNodes[I].Attributes['countHint']);
+                  end
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.newsubscriptionvideos' then
+                  Result.Links_NewSubscriptionVideos:=MainNode.ChildNodes[I].Attributes['href']
+                  else
+               if MainNode.ChildNodes[I].Attributes['rel']='http://gdata.youtube.com/schemas/2007#user.recentactivity' then
+                  Result.Links_RecentActivity:=MainNode.ChildNodes[I].Attributes['href']
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='yt:firstName' then
+             Result.User_FirstName:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:lastName' then
+             Result.User_LastName:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:aboutMe' then
+             Result.User_About:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:age' then
+             Result.User_Age:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:books' then
+             Result.User_Books:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:gender' then
+             Result.User_Gender:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:company' then
+             Result.User_Company:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:hobbies' then
+             Result.User_Hobbies:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:hometown' then
+             Result.User_Hometown:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:location' then
+             Result.User_Location:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:maxUploadDuration' then
+             Result.Channel_MaxUploadDuration:=StrToInt(MainNode.ChildNodes[I].Attributes['seconds']);
+
+          if MainNode.ChildNodes[I].NodeName='yt:movies' then
+             Result.User_Movies:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:music' then
+             Result.User_Music:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:relationship' then
+             Result.User_Relationship:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:occupation' then
+             Result.User_Occupation:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:school' then
+             Result.User_School:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:statistics' then
+             begin
+               Result.Statistics_VideoViews:=StrToInt(MainNode.ChildNodes[I].Attributes['totalUploadViews']);
+               Result.Statistics_ChannelViews:=StrToInt(MainNode.ChildNodes[I].Attributes['viewCount']);
+               Result.Statistics_WatchedVideos:=StrToInt(MainNode.ChildNodes[I].Attributes['videoWatchCount']);
+               Result.Statistics_Subscribers:=StrToInt(MainNode.ChildNodes[I].Attributes['subscriberCount']);
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='media:thumbnail' then
+             begin
+               Result.Channel_AvatarLink:=MainNode.ChildNodes[I].Attributes['url'];
+               ImageStream:=TMemoryStream.Create;
+               IdHTTP1.Get(Result.Channel_AvatarLink, ImageStream);
+//               Result.Channel_AvatarBitmap.LoadFromStream(ImageStream);
+               Result.Channel_AvatarBitmap:=FMX.Types.TBitmap.CreateFromStream(ImageStream);
+               ImageStream.Free;
+             end;
+
+          if MainNode.ChildNodes[I].NodeName='yt:userId' then
+             Result.Channel_YTUserID:=MainNode.ChildNodes[I].Text;
+
+          if MainNode.ChildNodes[I].NodeName='yt:username' then
+             Result.Channel_YTUsername:=MainNode.ChildNodes[I].Attributes['display'];
+        end;
+    XMLDocument1.Active:=False;
+    ResponseContent.Free;
+  except
+    on E: Exception do
+       begin
+         LastError:=E.Message;
+         LastErrorCode:=ExitCode;
+         XMLDocument1.Active:=False;
+         ResponseContent.Free;
+       end;
+  end;
+end;
+
+//<-- YouTube functions
+
 
 end.

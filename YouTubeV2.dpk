@@ -33,9 +33,12 @@ requires
   fmx,
   IndyCore,
   IndySystem,
-  IndyProtocols;
+  IndyProtocols,
+  xmlrtl;
 
 contains
-  YTComponentV2 in 'YTComponentV2.pas';
+  YTComponentV2 in 'YTComponentV2.pas',
+  X_Helper_Classes in 'X_Helper_Classes.pas',
+  YT_Helper_Classes in 'YT_Helper_Classes.pas';
 
 end.
